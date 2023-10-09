@@ -1,0 +1,88 @@
+package routes
+
+import (
+	"log"
+	"snapin-form/config"
+	"snapin-form/controllers"
+	m "snapin-form/middleware"
+	"snapin-form/models"
+
+	"gorm.io/gorm"
+
+	jwt "github.com/appleboy/gin-jwt/v2"
+
+	"github.com/gin-gonic/gin"
+)
+
+// var (
+// 	varconf        config.Configurations =
+// 	db             *gorm.DB                   = config.ConnectDB(varconf)
+// 	userModels     models.UserModels          = models.NewUserModels(db)
+// 	userController controllers.UserController = controllers.NewUserController(userModels)
+// )
+
+func SetupRoutes(conf config.Configurations) *gin.Engine {
+
+	r := gin.Default()
+
+	var varconf config.Configurations = conf
+	var db *gorm.DB = config.ConnectDB(varconf)
+	var formModels models.FormModels = models.NewFormModels(db)
+	var ftModels models.FieldTypeModels = models.NewFieldTypeModels(db)
+	var formFieldModels models.FormFieldModels = models.NewFormFieldModels(db)
+	var ruleModels models.RuleModels = models.NewRuleModels(db)
+	var formController controllers.FormController = controllers.NewFormController(formModels, formFieldModels, ftModels, ruleModels)
+	var projectModels models.ProjectModels = models.NewProjectModels(db)
+	var projectController controllers.ProjectController = controllers.NewProjectController(projectModels)
+
+	authMiddleware := m.SetupMiddleware(db)
+
+	// When you use jwt.New(), the function is already automatically called for checking,
+	// which means you don't need to call it again.
+	errInit := authMiddleware.MiddlewareInit()
+
+	if errInit != nil {
+		log.Fatal("authMiddleware.MiddlewareInit() Error:" + errInit.Error())
+	}
+
+	// forms
+	r.GET("/form", formController.FormList)
+	r.GET("/form/:id", formController.FormList)
+	r.POST("/form/create", formController.FormCreate)
+	r.PUT("/form/update/:id", formController.FormUpdate)
+	r.DELETE("/form/destroy/:id", formController.FormDestroy)
+
+	// form question
+	r.GET("/form/fieldtypes", formController.FieldTypeList)
+	r.GET("/form/fields/:formid", formController.FieldList)
+	r.POST("/form/fieldsave", formController.FieldCreate)
+	r.DELETE("/form/fielddestroy/:fieldid", formController.FieldDestroy)
+	r.POST("/form/saveimage", formController.FieldSaveImage)
+
+	// rules
+	r.GET("/rules/:type", formController.ConditionRuleList)
+
+	// form user
+	r.GET("/form/formuserlist", formController.FormUserList)
+	r.POST("/form/formusercreate", formController.FormUserCreate)
+	r.DELETE("/form/formuserdestroy/:id", formController.FormUserDestroy)
+
+	// group/projects
+	r.GET("/project", projectController.ProjectList)
+	r.GET("/project/:id", projectController.ProjectList)
+	r.POST("/project/create", projectController.ProjectCreate)
+	r.PUT("/project/update/:id", projectController.ProjectUpdate)
+	r.DELETE("/project/destroy/:id", projectController.ProjectDestroy)
+
+	// project form
+	r.POST("/project/projectformcreate", projectController.ProjectFormCreate)
+	r.DELETE("/project/projectformdestroy/:id", projectController.ProjectFormDestroy)
+
+	r.NoRoute(authMiddleware.MiddlewareFunc(), func(c *gin.Context) {
+		claims := jwt.ExtractClaims(c)
+		log.Printf("NoRoute claims: %#v\n", claims)
+		c.JSON(404, gin.H{"code": "PAGE_NOT_FOUND", "message": "Page not found"})
+	})
+
+	return r
+}
